@@ -1,94 +1,66 @@
-# smurfing_detector.py
-# Detects smurfing patterns: fan-in and fan-out.
-#
-# Fan-out: One account sends money to 10+ different accounts
-#          → Suspicious dispersal (breaking up large sums)
-#
-# Fan-in:  10+ different accounts send money to one account
-#          → Suspicious aggregation (collecting layered funds)
-#
-# Extra suspicion: If this happens within a 72-hour window.
+# smurfing_detector.py - No pandas version
+from datetime import datetime, timedelta
 
-import pandas as pd
-from datetime import timedelta
+FAN_THRESHOLD = 10
 
 
-# Threshold: how many connections trigger smurfing flag
-FAN_THRESHOLD = 10  # 10+ unique senders or receivers
-
-
-def detect_smurfing(G, df):
-    """
-    Detects fan-in and fan-out smurfing patterns.
-    Returns a list of rings. Each ring contains the hub account
-    and all its connected accounts.
-    """
+def detect_smurfing(G, rows):
     rings = []
     seen  = set()
 
     for node in G.nodes():
 
-        # ── Fan-out: node sends to many receivers ──────────────────────
+        # Fan-out
         out_neighbors = list(G.successors(node))
         if len(out_neighbors) >= FAN_THRESHOLD:
             key = ("fanout", node)
             if key not in seen:
                 seen.add(key)
-                ring_members = [node] + out_neighbors
-
-                # Check if it happens in a 72-hour window (more suspicious)
-                in_window = _check_72hr_window(df, node, out_neighbors, direction="out")
-
+                in_window = _check_72hr_window(rows, node, out_neighbors, "out")
                 rings.append({
-                    "members":    ring_members,
-                    "pattern":    "fan_out",
-                    "in_window":  in_window
+                    "members":   [node] + out_neighbors,
+                    "pattern":   "fan_out",
+                    "in_window": in_window,
                 })
 
-        # ── Fan-in: node receives from many senders ────────────────────
+        # Fan-in
         in_neighbors = list(G.predecessors(node))
         if len(in_neighbors) >= FAN_THRESHOLD:
             key = ("fanin", node)
             if key not in seen:
                 seen.add(key)
-                ring_members = in_neighbors + [node]
-
-                in_window = _check_72hr_window(df, node, in_neighbors, direction="in")
-
+                in_window = _check_72hr_window(rows, node, in_neighbors, "in")
                 rings.append({
-                    "members":   ring_members,
+                    "members":   in_neighbors + [node],
                     "pattern":   "fan_in",
-                    "in_window": in_window
+                    "in_window": in_window,
                 })
 
     return rings
 
 
-def _check_72hr_window(df, hub_account, neighbors, direction):
-    """
-    Checks whether the transactions between hub and neighbors
-    occurred within any 72-hour window.
-    Returns True if suspicious temporal clustering is found.
-    """
+def _check_72hr_window(rows, hub, neighbors, direction):
     try:
-        if direction == "out":
-            txs = df[
-                (df["sender_id"].astype(str) == str(hub_account)) &
-                (df["receiver_id"].astype(str).isin([str(n) for n in neighbors]))
-            ]
-        else:
-            txs = df[
-                (df["receiver_id"].astype(str) == str(hub_account)) &
-                (df["sender_id"].astype(str).isin([str(n) for n in neighbors]))
-            ]
+        neighbor_set = set(str(n) for n in neighbors)
+        hub_str      = str(hub)
+        timestamps   = []
 
-        timestamps = txs["timestamp"].dropna().sort_values()
-        if len(timestamps) < 2:
-            return False
+        for row in rows:
+            sender   = str(row.get("sender_id", "")).strip()
+            receiver = str(row.get("receiver_id", "")).strip()
 
-        # Sliding window: check if 5+ transactions happen within 72 hours
+            if direction == "out" and sender == hub_str and receiver in neighbor_set:
+                ts = _parse_ts(row.get("timestamp", ""))
+                if ts:
+                    timestamps.append(ts)
+            elif direction == "in" and receiver == hub_str and sender in neighbor_set:
+                ts = _parse_ts(row.get("timestamp", ""))
+                if ts:
+                    timestamps.append(ts)
+
+        timestamps.sort()
         window = timedelta(hours=72)
-        timestamps = list(timestamps)
+
         for i in range(len(timestamps)):
             count = sum(1 for t in timestamps[i:] if t - timestamps[i] <= window)
             if count >= 5:
@@ -98,3 +70,10 @@ def _check_72hr_window(df, hub_account, neighbors, direction):
         pass
 
     return False
+
+
+def _parse_ts(ts_str):
+    try:
+        return datetime.fromisoformat(str(ts_str).strip())
+    except Exception:
+        return None

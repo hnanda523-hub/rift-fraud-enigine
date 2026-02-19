@@ -1,41 +1,56 @@
-# graph_builder.py
-# Converts the CSV dataframe into a NetworkX directed graph.
-# Each unique account becomes a node.
-# Each transaction becomes a directed edge (sender → receiver).
-
+# graph_builder.py - No pandas version (works on any Python)
 import networkx as nx
+import csv
+import io
+from datetime import datetime
 
 
-def build_graph(df):
-    """
-    Takes a pandas DataFrame with transaction data.
-    Returns a NetworkX DiGraph (directed graph).
-    """
+def build_graph_from_df(df):
+    """Build graph from list of row dicts."""
     G = nx.DiGraph()
 
-    for _, row in df.iterrows():
-        sender   = str(row["sender_id"]).strip()
-        receiver = str(row["receiver_id"]).strip()
-        amount   = float(row["amount"])
-        timestamp = row["timestamp"]
+    for row in df:
+        sender    = str(row["sender_id"]).strip()
+        receiver  = str(row["receiver_id"]).strip()
+        try:
+            amount = float(row["amount"])
+        except Exception:
+            continue
 
-        # Add nodes (NetworkX auto-skips if already exists)
+        try:
+            timestamp = datetime.fromisoformat(str(row["timestamp"]))
+        except Exception:
+            timestamp = None
+
         G.add_node(sender)
         G.add_node(receiver)
 
-        # Add directed edge with metadata
-        # If edge already exists, we accumulate the amount
         if G.has_edge(sender, receiver):
-            G[sender][receiver]["amount"]      += amount
-            G[sender][receiver]["tx_count"]    += 1
+            G[sender][receiver]["amount"]     += amount
+            G[sender][receiver]["tx_count"]   += 1
             G[sender][receiver]["timestamps"].append(timestamp)
         else:
             G.add_edge(
-                sender,
-                receiver,
+                sender, receiver,
                 amount=amount,
                 tx_count=1,
                 timestamps=[timestamp]
             )
 
     return G
+
+
+def parse_csv(contents: bytes):
+    """Parse CSV bytes into list of row dicts."""
+    text    = contents.decode("utf-8")
+    reader  = csv.DictReader(io.StringIO(text))
+    rows    = []
+    for row in reader:
+        rows.append(row)
+    return rows
+
+
+def build_graph(contents: bytes):
+    """Main entry: parse CSV and build graph."""
+    rows = parse_csv(contents)
+    return build_graph_from_df(rows), rows
