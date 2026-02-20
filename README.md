@@ -4,7 +4,7 @@
 
 A real-time, graph-based financial forensics engine that detects money muling networks using advanced graph algorithms. Upload a CSV of transactions and instantly visualize fraud rings, suspicious accounts, and layered shell networks.
 
-🌐 **Live Demo:** https://rift-fraud-enigine-git-main-hemant-nandas-projects.vercel.app/
+🌐 **Live Demo:** https://rift-fraud-enigine.vercel.app/
 📦 **Backend API:** https://rift-fraud-backend.onrender.com/
 🎥 **Demo Video:** [LinkedIn Post Link Here]
 
